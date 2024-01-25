@@ -1,0 +1,143 @@
+---
+title: "Sentiment Analysis"
+author: "James Akemu"
+date: "2024-01-25"
+output: html_document
+---
+
+## R Markdown
+
+In this project, we will analyze and train a model that can classify twitter posts as racist/sexist or not. Let's load the necessary packages for this project.
+
+```{r echo=}
+library(tidyverse)
+library(tm)
+library(SnowballC)
+library(wordcloud)
+library(caret)
+library(naivebayes)
+library(gmodels)
+library(smotefamily)
+```
+
+## Explore and Prepare the dataset
+
+We'll load our dataset below
+
+```{r}
+sentiment <- read.csv(file = 'train.csv')
+```
+
+Let's Explore and Prepare the dataset
+
+```{r}
+head(sentiment)
+# We must remove remove the id column as it is unhelpful to building our model
+sentiment <- sentiment[-1]
+str(sentiment)
+```
+
+We'll convert the 'label' column from a character vector to factor vector and change its labels.
+```{r}
+sentiment$label <- factor(sentiment$label, labels = c('Not Racist/Sexist', 'Racist/Sexist'))
+# Let's see the distribution of tweets by their labels
+table(sentiment$label)
+prop.table(table(sentiment$label))
+# The vast majority of tweets are to be classified as 'not racist/sexist' (over 92%)
+```
+
+### Visualizing with words clouds
+```{r echo=FALSE}
+disc <- subset(sentiment, label == 'Racist/Sexist')
+not_disc <- subset(sentiment, label == 'Not Racist/Sexist')
+par(mfrow = c(1, 2))
+wordcloud(disc$tweet, max.words = 20, scale = c(3, 0.5), random.order = FALSE)
+wordcloud(not_disc$tweet, max.words = 20, scale = c(3, 0.5), random.order = FALSE)
+```
+
+It's seems that the word 'user' is by far the most popular in both labels. Let's remove it as it will negatively influence our model.
+```{r echo= FALSE}
+sentiment$tweet <- str_replace_all(sentiment$tweet, 'user', '') # We just removed the word 'user'
+disc <- subset(sentiment, label == 'Racist/Sexist')
+not_disc <- subset(sentiment, label == 'Not Racist/Sexist')
+wordcloud(disc$tweet, max.words = 40, scale = c(3, 0.5), random.order = FALSE)
+wordcloud(not_disc$tweet, max.words = 40, scale = c(3, 0.5), random.order = FALSE)
+```
+
+It's not surprising that the most common words found in offensive posts include 'black', 'white', 'trump', 'obama' and 'libtard'.
+
+## Cleaning and Standardizing Text Data.
+The first step is to create a **corpus** which is a collection of text documents.
+```{r}
+sentiment.corpus <- VCorpus(VectorSource(sentiment$tweet))
+as.character(sentiment.corpus[[1]])
+lapply(sentiment.corpus[1:2], as.character)
+```
+
+We'll create a **Document Term Matrix**. We'll start by removing Uppercase, numbers and Stopwords. We'll also remove Punctuation marks and we will stem the document. Stemming reduces words to their root words.
+```{r}
+sentiment.dtm <- DocumentTermMatrix(sentiment.corpus, control = list(
+  tolower = TRUE,
+  removeNumbers = TRUE,
+  stopwords = TRUE,
+  removePunctuation = TRUE,
+  stemming = TRUE
+))
+sentiment.dtm
+```
+
+### Split Data into train and test datasets
+We'll create our datasets randomly by splitting
+```{r echo = FALSE}
+set.seed(1234)
+train.sample <- sample(x = 31962, size = 25570)
+
+
+sentiment.dtm.train <- sentiment.dtm[train.sample,]
+sentiment.dtm.test <- sentiment.dtm[-train.sample,]
+
+# Create our labels
+sentiment.train.labels <- sentiment[train.sample,]$label
+sentiment.test.labels <- sentiment[-train.sample,]$label
+
+# Prove the data was randomly distributed
+prop.table(table(sentiment.train.labels))
+prop.table(table(sentiment.test.labels))
+```
+
+What we now have is called a **sparse matrix**. It has to be converted into a data structure.
+```{r}
+sent.freq.words.train <- findFreqTerms(sentiment.dtm.train, 20)
+sent.freq.words.test <- findFreqTerms(sentiment.dtm.train, 20)
+
+sentiment.dtm.freq.train <- sentiment.dtm.train[, sent.freq.words.train]
+sentiment.dtm.freq.test <- sentiment.dtm.test[, sent.freq.words.test]
+
+convert_counts <- function(x) {
+  x <- ifelse(x > 0, "Yes", "No")
+}
+
+sentiment_train <- apply(sentiment.dtm.freq.train, MARGIN = 2,
+                   convert_counts)
+sentiment_test <- apply(sentiment.dtm.freq.test, MARGIN = 2, convert_counts)
+```
+
+## Training a model on the data using naive bayes algorithm
+```{r}
+sentiment_classifier <- naive_bayes(sentiment_train, sentiment.train.labels, laplace = 1)
+```
+
+## Evaluating our model
+```{r}
+sentiment_pred <- predict(sentiment_classifier, sentiment_test)
+CrossTable(sentiment_pred, sentiment.test.labels, prop.chisq = FALSE, 
+           dnn = c('predicted', 'actual'))
+```
+
+Our Model has a 60% percent accuracy when it comes to predicting racist/sexist statements.
+Let's look at the performance overall
+```{r}
+confusionMatrix(sentiment_pred, sentiment.test.labels)
+```
+
+Overall, our model's accuracy is pretty high (94% accurate).
