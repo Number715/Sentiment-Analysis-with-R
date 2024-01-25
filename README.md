@@ -1,0 +1,1 @@
+In this basic machine learning project, we'll analyze and build a model based on on posts on twitter. The dataset contains more than 30,000 texts labelled as discriminatory or non-discriminatory. We'll use naive-bayes to Build a model that can classify these tweets. The data source was from Kaggle.
